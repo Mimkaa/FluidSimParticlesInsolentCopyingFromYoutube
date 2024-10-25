@@ -1,14 +1,19 @@
 using UnityEngine;
 
+
+// todo update the drawing thing with the Graphics.DrawMesh(Mesh.CreateSphere(1), circle.positionOffset, Quaternion.identity, material, 0); to draw many circles
+     
 [RequireComponent(typeof(MeshFilter), typeof(MeshRenderer))]
 public class FilledCircleWithShader : MonoBehaviour
 {
     public float radius = 1f;           // Radius of the circle
     public float gravity = 0f;
+    public float dampingFactor = 1f;
+    public Vector2 boundsSize = new Vector2(5f, 5f);
     
     private int segments = 50;           // Number of segments for the circle
-    private Vector3 velocity = Vector3.zero;      // Position offset applied in the shader
-    private Vector3 positionOffset = Vector3.zero;      // Position offset applied in the shader
+    private Vector3 velocity;      // Position offset applied in the shader
+    private Vector3 positionOffset;      // Position offset applied in the shader
     private Color color = Color.blue;    // Color of the circle
 
     private MeshRenderer meshRenderer;
@@ -37,8 +42,26 @@ public class FilledCircleWithShader : MonoBehaviour
         // Dynamically update shader properties without recreating the mesh
         velocity += Vector3.down * gravity * Time.deltaTime; 
         positionOffset += velocity * Time.deltaTime;
+        ResolveCollisions();
         material.SetFloat("_Radius", radius);
         material.SetVector("_Position", positionOffset);
+    }
+
+    void ResolveCollisions()
+    {
+        Vector2 halfBoundsSize = boundsSize / 2 - Vector2.one * radius;
+        
+        if (Mathf.Abs(positionOffset.x) > halfBoundsSize.x)
+        {
+            positionOffset.x = halfBoundsSize.x * Mathf.Sign(positionOffset.x);
+            velocity.x *= -1 * dampingFactor;
+        }
+
+        if (Mathf.Abs(positionOffset.y) > halfBoundsSize.y)
+        {
+            positionOffset.y = halfBoundsSize.y * Mathf.Sign(positionOffset.y);
+            velocity.y *= -1 * dampingFactor;
+        }
     }
 
     void CreateFilledCircle(Vector3 position)
@@ -95,7 +118,14 @@ public class FilledCircleWithShader : MonoBehaviour
             Vector3 currentPoint = new Vector3(Mathf.Cos(angle) * radius, Mathf.Sin(angle) * radius, 0);
             Vector3 nextPoint = new Vector3(Mathf.Cos(nextAngle) * radius, Mathf.Sin(nextAngle) * radius, 0);
 
-            Gizmos.DrawLine(transform.position + currentPoint, transform.position + nextPoint);
+            //Gizmos.DrawLine(transform.position + currentPoint, transform.position + nextPoint);
         }
+
+         
+        Gizmos.color = Color.green;
+
+        //Vector3 center = transform.position;
+
+        Gizmos.DrawWireCube(Vector3.zero, new Vector3(boundsSize.x, boundsSize.y, 1));
     }
 }
