@@ -9,15 +9,19 @@ public class FilledCircleWithShader : MonoBehaviour
     public float radius = 1f;           // Radius of the circle
     public float gravity = 0f;
     public float dampingFactor = 1f;
-    public Vector2 boundsSize = new Vector2(5f, 5f);
+    public Vector2 boundsSize = new Vector2(10f, 10f);
+    public int numParticles = 4;
+    public float particleSpacing = 0.5f;
     
     private int segments = 50;           // Number of segments for the circle
-    private Vector3 velocity;      // Position offset applied in the shader
-    private Vector3 positionOffset;      // Position offset applied in the shader
+    private Vector3[] velocities;      // Position offset applied in the shader
+    private Vector3[] positionOffsets;      // Position offset applied in the shader
     private Color color = Color.blue;    // Color of the circle
 
     private MeshRenderer meshRenderer;
     private Material material;
+    private MaterialPropertyBlock propertyBlock;
+    private Mesh circleMesh;
 
     void Start()
     {
@@ -28,50 +32,83 @@ public class FilledCircleWithShader : MonoBehaviour
         material = new Material(Shader.Find("Custom/SimpleVertexShader"));
         material.SetColor("_Color", color);
         material.SetFloat("_Radius", radius);
-        material.SetVector("_Position", positionOffset);
+        material.SetVector("_Position", Vector3.zero);
 
         // Assign the material to the MeshRenderer
         meshRenderer.material = material;
 
         // Create the mesh once and assign it to the MeshFilter
-        CreateFilledCircle(Vector3.zero);
+        circleMesh = CreateFilledCircle();
+
+        propertyBlock = new MaterialPropertyBlock();
+        ReshapeParticles();
+    }
+
+    void ReshapeParticles()
+    {
+        // Create particle arrays
+        positionOffsets = new Vector3[numParticles];
+        velocities = new Vector3[numParticles];
+
+        // Place particles in a grid formation
+        int particlesPerRow = (int)Mathf.Sqrt(numParticles);
+        int particlesPerCol = (numParticles - 1) / particlesPerRow + 1;
+        float spacing = radius * 2 + particleSpacing;
+
+        for (int i = 0; i < numParticles; i++)
+        {
+            float x = (i % particlesPerRow - particlesPerRow / 2f + 0.5f) * spacing;
+            float y = (i / particlesPerRow - particlesPerCol / 2f + 0.5f) * spacing;
+            positionOffsets[i] = new Vector2(x, y);
+        }
     }
 
     void Update()
     {
-        // Dynamically update shader properties without recreating the mesh
-        velocity += Vector3.down * gravity * Time.deltaTime; 
-        positionOffset += velocity * Time.deltaTime;
-        ResolveCollisions();
-        material.SetFloat("_Radius", radius);
-        material.SetVector("_Position", positionOffset);
+        
+        for (int i = 0; i < positionOffsets.Length; i++)
+        {
+            velocities[i] += Vector3.down * gravity * Time.deltaTime;
+            positionOffsets[i] += velocities[i] * Time.deltaTime;
+            propertyBlock.SetFloat("_Radius", radius);
+            propertyBlock.SetVector("_Position", positionOffsets[i]);
+            ResolveCollisions(ref positionOffsets[i], ref velocities[i]);
+            DrawCircle();
+        }
     }
 
-    void ResolveCollisions()
+    void DrawCircle()
+    {
+        Graphics.DrawMesh(circleMesh, Matrix4x4.identity, material, 0, null, 0, propertyBlock);
+    }
+
+    void ResolveCollisions(ref Vector3 position, ref Vector3 velocity)
     {
         Vector2 halfBoundsSize = boundsSize / 2 - Vector2.one * radius;
-        
-        if (Mathf.Abs(positionOffset.x) > halfBoundsSize.x)
+
+        if (Mathf.Abs(position.x) > halfBoundsSize.x)
         {
-            positionOffset.x = halfBoundsSize.x * Mathf.Sign(positionOffset.x);
+            position.x = halfBoundsSize.x * Mathf.Sign(position.x);
             velocity.x *= -1 * dampingFactor;
         }
 
-        if (Mathf.Abs(positionOffset.y) > halfBoundsSize.y)
+        if (Mathf.Abs(position.y) > halfBoundsSize.y)
         {
-            positionOffset.y = halfBoundsSize.y * Mathf.Sign(positionOffset.y);
+            position.y = halfBoundsSize.y * Mathf.Sign(position.y);
             velocity.y *= -1 * dampingFactor;
         }
     }
 
-    void CreateFilledCircle(Vector3 position)
+    
+
+    Mesh CreateFilledCircle()
     {
         Mesh mesh = new Mesh();
         Vector3[] vertices = new Vector3[segments + 1];  // Center vertex + vertices around the circle
         int[] triangles = new int[segments * 3];         // 3 indices per triangle
 
         // Center of the shape (pivot point)
-        vertices[0] = position;
+        vertices[0] = Vector3.zero;
 
         // Define vertices for the circle based on radius and segments
         for (int i = 1; i <= segments; i++)
@@ -98,10 +135,9 @@ public class FilledCircleWithShader : MonoBehaviour
         mesh.RecalculateNormals();
         mesh.RecalculateBounds();
 
-        // Assign the mesh to the MeshFilter component
-        GetComponent<MeshFilter>().mesh = mesh;
-
         Debug.Log("Circle Mesh Created with " + segments + " segments.");
+
+        return mesh;
     }
 
     // Draw the circle outline in the Scene view for visualization

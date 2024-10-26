@@ -411,8 +411,10 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 89ca8bb3a406a5745887f88a3c8e3667, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  radius: 2
-  segments: 50
+  radius: 1
+  gravity: 10
+  dampingFactor: 0.7
+  boundsSize: {x: 5, y: 5}
 --- !u!4 &1546375853
 Transform:
   m_ObjectHideFlags: 0
