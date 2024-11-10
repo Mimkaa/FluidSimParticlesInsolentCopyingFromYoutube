@@ -21,15 +21,18 @@ public class FilledCircleWithShader : MonoBehaviour
     private int segments = 50;           // Number of segments for the circle
     private Vector3[] velocities;        // Velocities of particles
     private Vector3[] positionOffsets;   // Positions of particles
+    private Vector3[] randomPositions;
     private float angleIncrement = 30f;
 
     private Mesh circleMesh;
     private Mesh ringMesh;
     private Mesh cubeMesh;
+    private Mesh planeMesh;
 
     private Material circleMaterial;
     private Material ringMaterial;
     private Material cubeMaterial;
+    private Material planeMaterial;
 
     private Vector3 ringPosition = new Vector3(0.5f, 0.5f, 0.0f);
     private Vector3 prevRingPosition = new Vector3(0.5f, 0.5f, 0.0f);
@@ -41,6 +44,8 @@ public class FilledCircleWithShader : MonoBehaviour
     private List<Vector3> positionsInRing;
     private List<float> heights;
     private bool refillPosintInRing = false;
+    float width;
+    float height;
 
     // Class to hold instance data
     class InstanceData
@@ -50,6 +55,7 @@ public class FilledCircleWithShader : MonoBehaviour
 
     void Start()
     {
+        
         // Initialize the dictionary
         meshMaterialInstances = new Dictionary<Mesh, Dictionary<Material, List<Matrix4x4>>>();
         positionsInRing = new List<Vector3>();
@@ -59,6 +65,13 @@ public class FilledCircleWithShader : MonoBehaviour
         circleMesh = CreateFilledCircle();
         ringMesh = CreateRing(innerRingSize, outterRingSize);
         cubeMesh = CreateCube(0.44f, 0.44f, 1.0f);
+
+        Camera cam = Camera.main;
+        width = cam.orthographicSize * 2.0f * cam.aspect;
+        height = cam.orthographicSize * 2.0f;
+
+        planeMesh = CreatePlane(width, height);
+       
 
         // Create materials for the circle and ring
         circleMaterial = new Material(Shader.Find("Custom/SimpleVertexShader"));
@@ -81,8 +94,18 @@ public class FilledCircleWithShader : MonoBehaviour
         cubeMaterial.enableInstancing = true;
         cubeMaterial.renderQueue = 2002;
 
+        planeMaterial = new Material(Shader.Find("Custom/FunctionShader"));
+        //planeMaterial.SetColor("_Color", Color.yellow); // Set desired color
+        planeMaterial.enableInstancing = true;
+        planeMaterial.renderQueue = 1999;
+
+        randomPositions = new Vector3[300];
+
+
         ReshapeParticles();
     }
+
+   
 
     void ReshapeParticles()
     {
@@ -186,6 +209,32 @@ public class FilledCircleWithShader : MonoBehaviour
 
     void Update()
     {
+        
+        //DrawFunctionPLaneAndRandowPoints();
+        DrawInteractableDensityGraph();
+        // Draw all instances
+        foreach (var meshEntry in meshMaterialInstances)
+        {
+            Mesh mesh = meshEntry.Key;
+            var materialDict = meshEntry.Value;
+
+            foreach (var materialEntry in materialDict)
+            {
+                Material material = materialEntry.Key;
+                List<Matrix4x4> matrices = materialEntry.Value;
+
+                DrawInstances(mesh, material, matrices);
+            }
+        }
+
+        
+    }
+
+   
+
+
+    void DrawInteractableDensityGraph()
+    {
         HandleRingSizeChange();
         if (Input.GetMouseButtonDown(0)) // Left mouse button
         {
@@ -267,24 +316,6 @@ public class FilledCircleWithShader : MonoBehaviour
             AddInstance(cubeMesh, cubeMaterial, cubeMatrix);
             iter++;
         }
-
-
-        // Draw all instances
-        foreach (var meshEntry in meshMaterialInstances)
-        {
-            Mesh mesh = meshEntry.Key;
-            var materialDict = meshEntry.Value;
-
-            foreach (var materialEntry in materialDict)
-            {
-                Material material = materialEntry.Key;
-                List<Matrix4x4> matrices = materialEntry.Value;
-
-                DrawInstances(mesh, material, matrices);
-            }
-        }
-
-        
     }
 
     void AddInstance(Mesh mesh, Material material, Matrix4x4 matrix)
@@ -479,6 +510,47 @@ public class FilledCircleWithShader : MonoBehaviour
         mesh.RecalculateBounds();
 
         Debug.Log("Cube Mesh Created with scales: " + scaleX + ", " + scaleY + ", " + scaleZ);
+
+        return mesh;
+    }
+
+    Mesh CreatePlane(float width, float height)
+    {
+        Mesh mesh = new Mesh();
+
+        // Define vertices for the corners of the plane based on width and height
+        Vector3[] vertices = new Vector3[4];
+        vertices[0] = new Vector3(-width / 2, -height / 2, 0f); // Bottom-left
+        vertices[1] = new Vector3(width / 2, -height / 2, 0f);  // Bottom-right
+        vertices[2] = new Vector3(-width / 2, height / 2, 0f);  // Top-left
+        vertices[3] = new Vector3(width / 2, height / 2, 0f);   // Top-right
+
+        // Define standard UV coordinates for each vertex
+        Vector2[] uv = new Vector2[4];
+        uv[0] = new Vector2(0, 0); // Bottom-left
+        uv[1] = new Vector2(1, 0); // Bottom-right
+        uv[2] = new Vector2(0, 1); // Top-left
+        uv[3] = new Vector2(1, 1); // Top-right
+
+        // Define triangles with standard winding
+        int[] triangles = new int[6];
+        triangles[0] = 0; // First triangle
+        triangles[1] = 2;
+        triangles[2] = 1;
+        triangles[3] = 1; // Second triangle
+        triangles[4] = 2;
+        triangles[5] = 3;
+
+        // Assign vertices, UVs, and triangles to the mesh
+        mesh.Clear();
+        mesh.vertices = vertices;
+        mesh.uv = uv;
+        mesh.triangles = triangles;
+
+        mesh.RecalculateNormals();
+        mesh.RecalculateBounds();
+
+        Debug.Log($"Plane Mesh Created with size {width} x {height}, 2 triangles with standard winding and UVs.");
 
         return mesh;
     }
