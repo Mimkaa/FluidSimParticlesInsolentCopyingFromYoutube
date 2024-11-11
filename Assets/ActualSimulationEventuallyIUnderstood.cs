@@ -1,30 +1,19 @@
+using System;
 using System.Collections;
 using System.Collections.Generic;
-using UnityEngine;
 using System.Threading.Tasks;
-using System;
-using System.Linq;
+using UnityEngine;
 
 public struct Entry : IComparable<Entry>
 {
-
     public uint cellKey;
     public uint particleIndex;
 
-    
-
-    // New constructor without particleIndex
-    public Entry(uint index, uint cellKey)
-    {
-        this.particleIndex = index;
-        this.cellKey = cellKey;
-        
-    }
-
-    // Method to set particleIndex after initialization
-    public void SetParticleIndex(uint particleIndex)
+    // Constructor with particleIndex and cellKey
+    public Entry(uint particleIndex, uint cellKey)
     {
         this.particleIndex = particleIndex;
+        this.cellKey = cellKey;
     }
 
     // Comparison method to sort entries by cellKey
@@ -45,6 +34,7 @@ public class ActualSimulationEventuallyIUnderstood : MonoBehaviour
     public float dampingFactor;
     public Vector2 boundsSize;
     public float viscosityStrength;
+    public float centralForceStrength;
 
     public float targetDensity;
     public float pressureMultiplier;
@@ -57,10 +47,10 @@ public class ActualSimulationEventuallyIUnderstood : MonoBehaviour
     private Vector2[] predictedPositions;
     private Vector2[] randomDirections;
     private Entry[] spatialLookup;
-    private uint[] startIndices;
+    private Dictionary<uint, int> startIndices;
 
     private Vector2[] points;
-    private float cellRaduis;
+    private float cellRadius;
 
     private Mesh circleMesh;
     private Material circleMaterial;
@@ -70,7 +60,6 @@ public class ActualSimulationEventuallyIUnderstood : MonoBehaviour
 
     private Dictionary<Mesh, Dictionary<Material, List<Matrix4x4>>> meshMaterialInstances;
 
-    // Start is called before the first frame update
     void Start()
     {
         meshMaterialInstances = new Dictionary<Mesh, Dictionary<Material, List<Matrix4x4>>>();
@@ -78,17 +67,6 @@ public class ActualSimulationEventuallyIUnderstood : MonoBehaviour
         Camera cam = Camera.main;
         width = cam.orthographicSize * 2.0f * cam.aspect;
         height = cam.orthographicSize * 2.0f;
-
-        //numParticles = 150;
-        //smoothingRadius = 2.0f;
-        //radius = 0.1f;
-        //gravity = 0.0f;
-        //mass = 1.0f;
-
-        //targetDensity = 3.0f;
-        //pressureMultiplier = 0.5f;
-        //dampingFactor = 1.0f;
-        //boundsSize = new Vector2(15f, 10f);
 
         circleMaterial = new Material(Shader.Find("Custom/SimpleVertexShader"));
         circleMaterial.SetColor("_Color", Color.red);
@@ -103,24 +81,16 @@ public class ActualSimulationEventuallyIUnderstood : MonoBehaviour
         positions = new Vector2[numParticles];
         randomDirections = new Vector2[numParticles];
         spatialLookup = new Entry[numParticles];
-        startIndices = new uint[numParticles];
+        startIndices = new Dictionary<uint, int>();
 
         points = positions;
-
-        int index = 0;
-        foreach(Entry e in spatialLookup)
-        {
-            e.SetParticleIndex((uint)index);
-            index++;
-        }
 
         for (int i = 0; i < numParticles; i++)
         {
             float angle = UnityEngine.Random.Range(0f, Mathf.PI * 2);
             randomDirections[i] = new Vector2(Mathf.Cos(angle), Mathf.Sin(angle));
         }
-        
-        //PopulateRandomPositions();
+
         ReshapeParticles();
         UpdateSpatialLookup(positions, smoothingRadius);
 
@@ -128,13 +98,9 @@ public class ActualSimulationEventuallyIUnderstood : MonoBehaviour
         {
             predictedPositions[i] = positions[i];
         }
-
-        Debug.Log("spacial lookups: " + string.Join(", ", spatialLookup));
-        Debug.Log("spacial lookups: " + string.Join(", ", startIndices));
-        Debug.Log("kavabanga");
     }
 
-     void ReshapeParticles()
+    void ReshapeParticles()
     {
         // Create particle arrays
         positions = new Vector2[numParticles];
@@ -153,25 +119,7 @@ public class ActualSimulationEventuallyIUnderstood : MonoBehaviour
         }
     }
 
-    void PopulateRandomPositions()
-    {
-        Camera cam = Camera.main;
-        if (cam == null)
-        {
-            Debug.LogError("Main camera not found.");
-            return;
-        }
-
-        for (int i = 0; i < positions.Length; i++)
-        {
-            float offset = 2.0f;
-            float randomX = UnityEngine.Random.Range(-width / 2f + offset, width / 2f - offset);
-            float randomY = UnityEngine.Random.Range(-height / 2f + offset, height / 2f - offset);
-            positions[i] = new Vector2(randomX, randomY);
-        }
-    }
-
-   static float SmoothingKernel(float dst, float radius)
+    static float SmoothingKernel(float dst, float radius)
     {
         if (dst >= radius) return 0;
 
@@ -210,12 +158,14 @@ public class ActualSimulationEventuallyIUnderstood : MonoBehaviour
         Vector2 viscosityForce = Vector2.zero;
         Vector2 position = positions[particleIndex];
 
-        foreach (int otherIndex in GetNeighbours(position))
+        ForeachPointWithinRadius(position, smoothingRadius, otherParticleIndex =>
         {
-            float dst = (position - positions[otherIndex]).magnitude;
+            if (particleIndex == otherParticleIndex) return;
+
+            float dst = (position - positions[otherParticleIndex]).magnitude;
             float influence = ViscositySmoothingKernel(dst, smoothingRadius);
-            viscosityForce += (velocities[otherIndex] - velocities[particleIndex]) * influence;
-        }
+            viscosityForce += (velocities[otherParticleIndex] - velocities[particleIndex]) * influence;
+        });
 
         return viscosityForce * viscosityStrength;
     }
@@ -224,25 +174,23 @@ public class ActualSimulationEventuallyIUnderstood : MonoBehaviour
     {
         Vector2 pressureForce = Vector2.zero;
         Vector2 particlePosition = predictedPositions[particleIndex];
-        float density = densities[particleIndex];  // Assume density for this particle is already calculated
+        float density = densities[particleIndex];
 
-        // Use ForeachPointWithinRadius to only loop over nearby particles
         ForeachPointWithinRadius(particlePosition, smoothingRadius, otherParticleIndex =>
         {
-            if (particleIndex == otherParticleIndex) return;  // Skip self
+            if (particleIndex == otherParticleIndex) return;
 
             Vector2 offset = predictedPositions[otherParticleIndex] - particlePosition;
             float dst = offset.magnitude;
 
-            // Determine direction; if distance is zero, use a random direction
             Vector2 dir = dst == 0 ? GetRandomDir(particleIndex) : offset / dst;
 
-            // Calculate slope and shared pressure
             float slope = SmoothingKernelDerivative(dst, smoothingRadius);
             float otherDensity = densities[otherParticleIndex];
             float sharedPressure = CalculateSharedPressure(otherDensity, density);
 
-            // Accumulate the pressure force
+            //float safeDensity = Mathf.Max(density, 0.0001f); // Avoid division by zero
+
             pressureForce -= (sharedPressure * dir * slope * mass) / density;
         });
 
@@ -254,17 +202,16 @@ public class ActualSimulationEventuallyIUnderstood : MonoBehaviour
         float density = 0;
         Vector2 particlePosition = predictedPositions[particleIndex];
 
-        // Use ForeachPointWithinRadius to only loop over nearby particles
         ForeachPointWithinRadius(particlePosition, smoothingRadius, otherParticleIndex =>
         {
             Vector2 offset = predictedPositions[otherParticleIndex] - particlePosition;
             float dst = offset.magnitude;
-
-            // Calculate influence based on smoothing kernel
+            if (dst < 0.001f) dst = 0.001f;
+            
             float influence = SmoothingKernel(dst, smoothingRadius);
             density += mass * influence;
         });
-
+        density = Mathf.Clamp(density, -3000, 3000);
         return density;
     }
 
@@ -272,6 +219,7 @@ public class ActualSimulationEventuallyIUnderstood : MonoBehaviour
     {
         float densityError = density - targetDensity;
         float pressure = -densityError * pressureMultiplier;
+        
         return pressure;
     }
 
@@ -281,28 +229,61 @@ public class ActualSimulationEventuallyIUnderstood : MonoBehaviour
         Vector2 offset = inputPos - positions[particleIndex];
         float sqrDst = Vector2.Dot(offset, offset);
 
-        // If particle is inside of input radius, calculate force towards input point
         if (sqrDst < radius * radius)
         {
             float dst = Mathf.Sqrt(sqrDst);
             Vector2 dirToInputPoint = dst <= float.Epsilon ? Vector2.zero : offset / dst;
-            // Value is 1 when particle is exactly at input point; 0 when at edge of input circle
             float centreT = 1 - dst / radius;
-            // Calculate the force (velocity is subtracted to slow the particle down)
             interactionForce += (dirToInputPoint * strength - velocities[particleIndex]) * centreT;
         }
 
         return interactionForce;
     }
 
+    void ApplyCentralForce(float deltaTime)
+    {
+        float desiredRadius = 4.0f; // Set your desired orbit radius
+        float centralForceStrength = this.centralForceStrength; // Adjust strength as needed
+        float damping = 0.1f; // Damping factor to stabilize radial movement
+
+        Parallel.For(0, numParticles, i =>
+        {
+            Vector2 position = predictedPositions[i];
+            float distanceToCenter = position.magnitude;
+
+            if (distanceToCenter == 0f)
+            {
+                // Assign a small offset to avoid division by zero
+                position = new Vector2(0.001f, 0f);
+                distanceToCenter = position.magnitude;
+            }
+
+            Vector2 radialDirection = position / distanceToCenter;
+
+            // Radial force to push/pull particles towards desired radius
+            float radialForceMagnitude = (desiredRadius - distanceToCenter) * centralForceStrength;
+            Vector2 radialForce = radialDirection * radialForceMagnitude;
+
+            // Apply the radial force
+            velocities[i] += radialForce * deltaTime;
+
+            // Apply damping to radial velocity to prevent oscillations
+            //float radialVelocity = Vector2.Dot(velocities[i], radialDirection);
+            //velocities[i] -= radialDirection * radialVelocity * damping;
+        });
+    }
+
+
     void SimulationStep(float deltaTime)
     {
         // Apply gravity and predict next positions
+        
         Parallel.For(0, numParticles, i =>
         {
-            velocities[i] += Vector2.down * gravity * deltaTime;
+            //velocities[i] += Vector2.down * gravity * deltaTime;
             predictedPositions[i] = positions[i] + velocities[i] * deltaTime;
         });
+        ApplyCentralForce(deltaTime);
 
         // Update spatial lookup with predicted positions
         UpdateSpatialLookup(predictedPositions, smoothingRadius);
@@ -313,16 +294,15 @@ public class ActualSimulationEventuallyIUnderstood : MonoBehaviour
             densities[i] = CalculateDensity(i);
         });
 
-        // Calculate and apply pressure forces
+        // Calculate and apply pressure and viscosity forces
         Parallel.For(0, numParticles, i =>
         {
             Vector2 pressureForce = CalculatePressureForce(i);
             Vector2 pressureAcceleration = pressureForce / densities[i];
-            
-            Vector2 viscosityForce = CalculateViscosityForce(i); // Calculate the viscosity force
-            Vector2 viscosityAcceleration = viscosityForce / densities[i]; // Convert viscosity force to acceleration
 
-            // Update the velocity by adding both pressure and viscosity accelerations
+            Vector2 viscosityForce = CalculateViscosityForce(i);
+            Vector2 viscosityAcceleration = viscosityForce / densities[i];
+
             velocities[i] += (pressureAcceleration + viscosityAcceleration) * deltaTime;
         });
 
@@ -410,8 +390,6 @@ public class ActualSimulationEventuallyIUnderstood : MonoBehaviour
         mesh.RecalculateNormals();
         mesh.RecalculateBounds();
 
-        Debug.Log("Circle Mesh Created with " + segments + " segments.");
-
         return mesh;
     }
 
@@ -427,93 +405,48 @@ public class ActualSimulationEventuallyIUnderstood : MonoBehaviour
     // Convert a position to the coordinate of the cell it is within
     public (int x, int y) PositionToCellCoord(Vector2 point, float radius)
     {
-        int cellX = (int)(point.x / radius);
-        int cellY = (int)(point.y / radius);
+        int cellX = Mathf.FloorToInt(point.x / radius);
+        int cellY = Mathf.FloorToInt(point.y / radius);
         return (cellX, cellY);
     }
 
-    // Convert a cell coordinate into a single number.
-    // Hash collisions (different cells -> same value) are unavoidable, but we want to at
-    // least try to minimize collisions for nearby cells. I'm sure there are better ways,
-    // but this seems to work okay.
+    // Hash the cell coordinates to get a unique cell key
     public uint HashCell(int cellX, int cellY)
     {
-        uint a = (uint)cellX * 15823;
-        uint b = (uint)cellY * 9737333;
-        return a + b;
-    }
-
-    // Wrap the hash value around the length of the array (so it can be used as an index)
-    public uint GetKeyFromHash(uint hash)
-    {
-        return hash % (uint)spatialLookup.Length;
+        unchecked
+        {
+            uint a = (uint)(cellX * 73856093);
+            uint b = (uint)(cellY * 19349663);
+            return a ^ b;
+        }
     }
 
     public void UpdateSpatialLookup(Vector2[] points, float radius)
     {
         this.points = points;
-        this.cellRaduis = radius;
+        this.cellRadius = radius;
 
         // Create (unordered) spatial lookup
-        Parallel.For(0, points.Length, i =>
+        for (int i = 0; i < points.Length; i++)
         {
-            (int cellX, int cellY) = PositionToCellCoord(points[i], cellRaduis);
-            uint cellKey = GetKeyFromHash(HashCell(cellX, cellY));
+            (int cellX, int cellY) = PositionToCellCoord(points[i], cellRadius);
+            uint cellKey = HashCell(cellX, cellY);
             spatialLookup[i] = new Entry((uint)i, cellKey);
-            startIndices[i] = int.MaxValue; // Reset start index
-        });
+        }
 
         // Sort by cell key
         Array.Sort(spatialLookup);
 
-        //string cellKeys = string.Join(", ", spatialLookup.Select(entry => entry.cellKey.ToString()));
-        //Debug.Log("cellKeys: " + cellKeys);
-
-        // Calculate start indices of each unique cell key in the spatial lookup
-        Parallel.For(0, points.Length, i =>
+        // Build startIndices dictionary
+        startIndices.Clear();
+        for (int i = 0; i < spatialLookup.Length; i++)
         {
             uint key = spatialLookup[i].cellKey;
-            uint keyPrev = i == 0 ? uint.MaxValue : spatialLookup[i - 1].cellKey;
-            if (key != keyPrev)
+            if (!startIndices.ContainsKey(key))
             {
-                startIndices[key] = (uint)i;
+                startIndices[key] = i;
             }
-        });
-
-
-    }
-
-    public List<int> GetNeighbours(Vector2 position)
-    {
-        List<int> particlesInCell = new List<int>();
-
-        // Step 1: Convert position to cell coordinates
-        (int cellX, int cellY) = PositionToCellCoord(position, cellRaduis);
-
-        // Step 2: Hash the cell coordinates to get the cell key
-        uint key = GetKeyFromHash(HashCell(cellX, cellY));
-
-        // Step 3: Use startIndices to find the beginning of the cell's entries
-        int cellStartIndex = (int)startIndices[key];
-
-        // Check if cellStartIndex is valid
-        if (cellStartIndex < 0 || cellStartIndex >= spatialLookup.Length)
-        {
-            //Debug.LogWarning($"Cell key {key} out of bounds or uninitialized.");
-            return particlesInCell; // Return an empty list if out of bounds
         }
-
-        // Step 4: Loop through spatialLookup from cellStartIndex
-        for (int i = cellStartIndex; i < spatialLookup.Length; i++)
-        {
-            // Stop if we reach entries belonging to the next cell
-            if (spatialLookup[i].cellKey != key) break;
-
-            // Add particle index to the list
-            particlesInCell.Add((int)spatialLookup[i].particleIndex);
-        }
-
-        return particlesInCell;
     }
 
     public void ForeachPointWithinRadius(Vector2 samplePoint, float radius, Action<int> callback)
@@ -533,38 +466,19 @@ public class ActualSimulationEventuallyIUnderstood : MonoBehaviour
         // Loop over all cells of the 3x3 block around the center cell
         foreach ((int offsetX, int offsetY) in cellOffsets)
         {
-            // Get key of current cell, then loop over all points that share that key
-            uint key = GetKeyFromHash(HashCell(centreX + offsetX, centreY + offsetY));
+            int neighborCellX = centreX + offsetX;
+            int neighborCellY = centreY + offsetY;
+            uint key = HashCell(neighborCellX, neighborCellY);
 
-            // Bounds check for startIndices
-            //if (key >= startIndices.Length || startIndices[key] == uint.MaxValue)
-            //{
-                //Debug.LogWarning($"Key {key} is out of bounds or uninitialized in startIndices with length {startIndices.Length}");
-                //continue;
-            //}
-
-            int cellStartIndex = (int)startIndices[key];
-            
-            // Bounds check for cellStartIndex
-            //if (cellStartIndex < 0 || cellStartIndex >= spatialLookup.Length)
-            //{
-               // Debug.LogWarning($"cellStartIndex {cellStartIndex} is out of bounds for spatialLookup with length {spatialLookup.Length}");
-                //continue;
-            //}
-            
-            for (int i = cellStartIndex; i < spatialLookup.Length; i++)
+            // Attempt to get the starting index of this cell
+            if (!startIndices.TryGetValue(key, out int cellStartIndex))
             {
-                // Exit loop if we're no longer looking at the correct cell
-                if (spatialLookup[i].cellKey != key) break;
+                continue; // Cell key not found
+            }
 
+            for (int i = cellStartIndex; i < spatialLookup.Length && spatialLookup[i].cellKey == key; i++)
+            {
                 int particleIndex = (int)spatialLookup[i].particleIndex;
-
-                // Validate particleIndex
-                //if (particleIndex < 0 || particleIndex >= points.Length)
-                //{
-                //    Debug.LogWarning($"Invalid particleIndex {particleIndex} for points with length {points.Length}");
-                //    break;
-                //}
 
                 float sqrDst = (points[particleIndex] - samplePoint).sqrMagnitude;
 
@@ -577,18 +491,16 @@ public class ActualSimulationEventuallyIUnderstood : MonoBehaviour
         }
     }
 
-
     void Update()
     {
         meshMaterialInstances.Clear();  // Clear old instances
-        SimulationStep(1/180f);
+        SimulationStep(Time.deltaTime);
         DrawCircles();
 
         Vector3 mouseWorldPosition = Camera.main.ScreenToWorldPoint(Input.mousePosition);
         Vector2 mousePosition2D = new Vector2(mouseWorldPosition.x, mouseWorldPosition.y);
 
         float radius = 3.0f; // Set your desired radius
-        //float strength = 10.0f; // Set the force strength
 
         float strength = 0.0f;
         if (Input.GetMouseButton(0)) // Left mouse button
@@ -620,8 +532,5 @@ public class ActualSimulationEventuallyIUnderstood : MonoBehaviour
                 DrawInstances(mesh, material, matrices);
             }
         }
-
-        
-
     }
 }

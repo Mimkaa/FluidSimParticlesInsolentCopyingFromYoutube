@@ -244,15 +244,17 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: c9d7799b63e2b3948ba190c7205b07ec, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  numParticles: 3000
+  numParticles: 2000
   smoothingRadius: 1.2
   radius: 0.1
-  gravity: 2
+  gravity: 0
   mass: 1
-  dampingFactor: 1
-  boundsSize: {x: 10, y: 10}
-  targetDensity: 80
-  pressureMultiplier: 20
+  dampingFactor: 0.8
+  boundsSize: {x: 15, y: 10}
+  viscosityStrength: 0.1
+  centralForceStrength: 10
+  targetDensity: 15
+  pressureMultiplier: 300
 --- !u!4 &1881440529
 Transform:
   m_ObjectHideFlags: 0
